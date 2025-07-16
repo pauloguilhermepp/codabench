@@ -75,6 +75,11 @@ AVAILABLE_STATUSES = (
     STATUS_FAILED,
 )
 
+# -----------------------------------------------
+# Meta Data Files
+# -----------------------------------------------
+META_DATA_FILES = ['metadata', 'metadata.yaml']
+
 
 # -----------------------------------------------
 # Container Engine
@@ -452,9 +457,52 @@ class Run:
                 except HTTPError:
                     raise SubmissionException(f"Problem fetching {url} to put in {destination}")
             try:
-                # Extract the contents to destination directory
                 with ZipFile(bundle_file, 'r') as z:
+                    # Get list of files and directories from the zip of scoring program
+                    extracted_files = z.namelist()
+
+                    # check ingestion
+                    is_ingestion = destination == "ingestion_program"
+                    is_scoring = destination == "program" and self.is_scoring
+
+
+                    # Intiialize parent dir with a None value
+                    parent_dir = None
+
+                    # loop over all the extracted files to identify parent directory
+                    for extracted_file in extracted_files:
+                        # `/` shows that there is a directory structure e.g. scoring_program/score.py
+                        if '/' in extracted_file:
+                            # for ingestion and scoring program
+                            #   - if a metadata file is located in the subdirectory
+                            #   - that directory is considered the parent dir
+                            if is_scoring or is_ingestion:
+                                if os.path.basename(extracted_file) in META_DATA_FILES:
+                                    # split the path by `/`, the first item is the directory name
+                                    # e.g. splitting `scoring_program/metadata` on `/` gives you `scoring_program` as the parent dir
+                                    parent_dir = extracted_file.split('/')[0]
+                                    break
+                            else:
+                                # split the path by `/`, the first item is the directory name
+                                # e.g. splitting `input_data/input_file.csv` on `/` gives you `input_data` as the parent dir
+                                parent_dir = extracted_file.split('/')[0]
+                                break
+
+                    # Extract scoring program in the destination directory (with or without parent dir)
                     z.extractall(os.path.join(self.root_dir, destination))
+
+                    if parent_dir:
+                        # parent directory is found. Now the the following
+                        # - Move the content of parent dir to the destination
+                        # - Delete parent dir
+                        parent_dir_path = os.path.join(self.root_dir, destination, parent_dir)
+                        parent_files = os.listdir(parent_dir_path)
+                        for file in parent_files:
+                            file_path = os.path.join(parent_dir_path, file)
+                            dest_path = os.path.join(self.root_dir, destination, file)
+                            os.rename(file_path, dest_path)
+                        os.rmdir(parent_dir_path)
+
                 break  # Break if the loop is successful
             except BadZipFile:
                 retries += 1
@@ -583,7 +631,14 @@ class Run:
 
         return path
 
-    async def _run_program_directory(self, program_dir, kind, can_be_output=False):
+    async def _run_program_directory(self, program_dir, kind):
+        """
+        Function responsible for running program directory
+
+        Args:
+            - program_dir : can be either ingestion program or program/submission
+            - kind : either `program` or `ingestion`
+        """
         # If the directory doesn't even exist, move on
         if not os.path.exists(program_dir):
             logger.info(f"{program_dir} not found, no program to execute")
@@ -597,12 +652,13 @@ class Run:
         elif os.path.exists(os.path.join(program_dir, "metadata")):
             metadata_path = 'metadata'
         else:
-            if can_be_output:
+            # Display a warning in logs when there is no metadata file in submission/program dir
+            if kind == "program":
                 logger.info(
-                    "Program directory missing metadata, assuming it's going to be handled by ingestion "
-                    "program so move it to output"
+                    "Program directory missing metadata, assuming it's going to be handled by ingestion"
                 )
-                # Copying so that we don't move a code submission w/out a metadata command
+                # Copy submission files into prediction output
+                # This is useful for results submissions but wrongly uses storage
                 shutil.copytree(program_dir, self.output_dir)
                 return
             else:
@@ -815,7 +871,7 @@ class Run:
         logger.info("Running scoring program, and then ingestion program")
         loop = asyncio.new_event_loop()
         gathered_tasks = asyncio.gather(
-            self._run_program_directory(program_dir, kind='program', can_be_output=True),
+            self._run_program_directory(program_dir, kind='program'),
             self._run_program_directory(ingestion_program_dir, kind='ingestion'),
             self.watch_detailed_results(),
             loop=loop,

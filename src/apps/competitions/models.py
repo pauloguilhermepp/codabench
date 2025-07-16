@@ -342,6 +342,8 @@ class Phase(ChaHubSaveMixin, models.Model):
     auto_migrate_to_this_phase = models.BooleanField(default=False)
     has_been_migrated = models.BooleanField(default=False)
     hide_output = models.BooleanField(default=False)
+    hide_prediction_output = models.BooleanField(default=False)
+    hide_score_output = models.BooleanField(default=False)
 
     has_max_submissions = models.BooleanField(default=True)
     max_submissions_per_day = models.PositiveIntegerField(default=5, null=True, blank=True)
@@ -574,6 +576,7 @@ class Submission(ChaHubSaveMixin, models.Model):
         """
         Soft delete the submission: remove files but keep record in DB.
         Also deletes associated SubmissionDetails and cleans up storage.
+        Also removes organization reference from the submission
         """
 
         # Remove related files from storage
@@ -597,6 +600,9 @@ class Submission(ChaHubSaveMixin, models.Model):
 
         # Clear the data field for this submission
         self.data = None
+
+        # Clear the organization field for this submission
+        self.organization = None
 
         # Mark submission as deleted
         self.is_soft_deleted = True

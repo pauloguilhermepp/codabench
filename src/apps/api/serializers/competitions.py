@@ -43,6 +43,8 @@ class PhaseSerializer(WritableNestedModelSerializer):
             'max_submissions_per_person',
             'auto_migrate_to_this_phase',
             'hide_output',
+            'hide_prediction_output',
+            'hide_score_output',
             'leaderboard',
             'public_data',
             'starting_kit',
@@ -124,6 +126,8 @@ class PhaseDetailSerializer(serializers.ModelSerializer):
             'max_submissions_per_person',
             'auto_migrate_to_this_phase',
             'hide_output',
+            'hide_prediction_output',
+            'hide_score_output',
             # no leaderboard
             'public_data',
             'starting_kit',
@@ -452,6 +456,8 @@ class CompetitionSerializerSimple(serializers.ModelSerializer):
             'contact_email',
             'report',
             'is_featured',
+            'submissions_count',
+            'participants_count'
         )
 
     def get_created_by(self, obj):
